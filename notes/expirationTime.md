@@ -78,3 +78,7 @@ export function computeInteractiveExpiration(currentTime: ExpirationTime) {
 ```
 
 在计算 expirationTime 的时候有两种，一种是计算交互式的(computeInteractiveExpiration)，比如事件产生的更新;另外一种是计算异步的(computeAsyncExpiration)。交互式的优先级比异步的高，所以传进去的 EXPIRATION 和 BATCH_SIZE 更小。其实计算的函数式 computeExpirationBucket。
+
+
+
+ExpirationTime 不能把它当做时间单位，应该把它看作为一个任务优先级的单位，这个数值越大，优先级越高，然后数值是根据时间来计算的。
