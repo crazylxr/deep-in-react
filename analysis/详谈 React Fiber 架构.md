@@ -16,7 +16,7 @@ React 作为我最喜欢的框架，没有之一，我愿意花很多时间来�
 
 ### React 的核心思想
 
-内存中维护一颗虚拟DOM树，数据变化时（setState），自动更新虚拟 DOM，得到一颗新树，然后 Diff 新老虚拟 DOM 树，找到有变化的部分，得到一个 Change(Patch)，将这个 Patch 加入队列，最终批量更新这些 Patch 到 DOM 中。简单说就是：Diff + Patch。
+**内存中维护一颗虚拟DOM树，数据变化时（setState），自动更新虚拟 DOM，得到一颗新树，然后 Diff 新老虚拟 DOM 树，找到有变化的部分，得到一个 Change(Patch)，将这个 Patch 加入队列，最终批量更新这些 Patch 到 DOM 中**。简单说就是：Diff + Patch。
 
 ### React 16 之前的不足
 
@@ -104,9 +104,130 @@ Fiber 架构能够将任务分片，划分优先级，同时能够实现类似�
 
 ### Fiber Node
 
+首先要谈到的就是基础的一个数据结构：FIber Node，承载了非常关键的上下文信息，可以说是贯彻整个创建和更新的流程，接下来就介绍一下这个 Fiber Node 所承载的信息。
 
+```javascript
+{
+  // 组件相关
+  tag: WorkTag, // 标记不同的组件类型
+  key: null | string, // ReactElement里面的key
+  elementType: any,// ReactElement.type，也就是我们调用`createElement`的第一个参数
+  // The resolved function/class/ associated with this fiber.
+  // 异步组件resolved之后返回的内容，一般是`function`或者`class`
+  type: any,
+    
+  // The local state associated with this fiber.
+  // 跟当前Fiber相关本地状态（比如浏览器环境就是DOM节点）
+  stateNode: any,
+  // 指向他在Fiber节点树中的`parent`，用来在处理完这个节点之后向上返回
+  return: Fiber | null,
+  // 单链表树结构
+  // 指向自己的第一个子节点
+  child: Fiber | null,
+  // 指向自己的兄弟结构
+  // 兄弟节点的return指向同一个父节点
+  sibling: Fiber | null,
+  index: number,
+
+  // ref属性
+  ref: null | (((handle: mixed) => void) & {_stringRef: ?string}) | RefObject,
+
+  // 更新相关
+  pendingProps: any,  // 新的变动带来的新的props
+  memoizedProps: any,  // 上一次渲染完成之后的props
+  updateQueue: UpdateQueue<any> | null,  // 该Fiber对应的组件产生的Update会存放在这个队列里面
+  memoizedState: any, // 上一次渲染的时候的state
+  firstContextDependency: ContextDependency<mixed> | null,// 一个列表，存放这个Fiber依赖的context
+  expirationTime: ExpirationTime,  // 代表任务在未来的哪个时间点应该被完成，不包括他的子树产生的任务
+  // 快速确定子树中是否有不在等待的变化
+  childExpirationTime: ExpirationTime,
+
+  // 用来描述当前Fiber和他子树的`Bitfield`
+  // 共存的模式表示这个子树是否默认是异步渲染的
+  // Fiber被创建的时候他会继承父Fiber
+  // 其他的标识也可以在创建的时候被设置
+  // 但是在创建之后不应该再被修改，特别是他的子Fiber创建之前
+  mode: TypeOfMode,
+    
+ // 在Fiber树更新的过程中，每个Fiber都会有一个跟其对应的Fiber
+  // 我们称他为`current <==> workInProgress`
+  // 在渲染完成之后他们会交换位置
+  alternate: Fiber | null,
+
+  // Effect 相关的
+  effectTag: SideEffectTag, // 用来记录Side Effect
+  nextEffect: Fiber | null, // 单链表用来快速查找下一个side effect
+  firstEffect: Fiber | null,  // 子树中第一个side effect
+  lastEffect: Fiber | null, // 子树中最后一个side effect
+};
+```
+
+## Fiber Reconciler
+
+reconcile过程分为2个阶段（phase）：
+
+1. （可中断）render/reconciliation 通过构造workInProgress tree得出change
+2. （不可中断）commit 应用这些DOM change
+
+render 阶段可以理解为就是 Diff 的过程，得出 Change(Effect List)，会执行声明如下的声明周期方法：
+
+- componentWillMount
+- componentWillReceiveProps
+- shouldComponentUpdate
+- componentWillUpdate
+
+而 commit 阶段可以理解为就是将 Diff 的结果反映到真实 DOM 的过程，会执行如下的声明周期方法：
+
+- componentDidMount
+- componentDidUpdate
+- componentWillUnmount
+
+由于 render 阶段是可中断的，一旦中断之后恢复的时候又会重新执行，所以很可能 render 阶段的生命周期方法会被多次调用。
+
+> 有个疑问，render 是 render 阶段完毕之后调用的吗？
 
 ### Fiber Tree 和 WorkInProgress Tree
+
+React 在 render 第一次渲染时，会通过 React.createElement 创建一颗 Element 树，可以称之为 Virtual DOM Tree，由于要记录上下文信息，加入了 Fiber，每一个 Element 会对应一个 Fiber Node，将 Fiber Node 链接起来的结构成为 Fiber Tree。在后续的更新过程中（setState），每次重新渲染都会重新创建Element, 但是 Fiber 不会，Fiber 只会使用对应的 Element 中的数据来更新自己必要的属性，
+
+Fiber Tree 一个重要的特点是链表结构，将递归遍历编程循环遍历，然后配合 requestIdleCallback` API, 实现任务拆分、中断与恢复。
+
+这个链接的结构是怎么构成的呢，这就要主要到之前 Fiber Node 的节点的这几个字段：
+
+```javascript
+// 单链表树结构
+{
+   return: Fiber | null, // 指向父节点
+   child: Fiber | null,// 指向自己的第一个子节点
+   sibling: Fiber | null,// 指向自己的兄弟结构，兄弟节点的return指向同一个父节点
+}
+```
+
+每一个 Fiber Node 节点与 Virtual Dom 一一对应，所有 Fiber Node 连接起来形成 Fiber tree, 是个单链表树结构，如下图所示：
+
+![](https://pic4.zhimg.com/80/v2-a825372d761879bd1639016e6db93947_hd.jpg)
+
+对照图来看，是不是可以知道 Fiber Node 是如何联系起来的呢，Fiber Tree 就是这样一个单链表。
+
+**当 render 的时候有了这么一条单链表，当调用 `setState` 的时候又是如何 Diff 得到 change 的呢？**
+
+采用的是一种叫**双缓冲技术（double buffering）**，这个时候就需要另外一颗树：WorkInProgress Tree。
+
+在 render 的时候创建的那颗 Fiber Tree 被称作为 Current Tree，另外 setState 的时候回重新构建一颗 WorkInProgress Tree，不过不是完全的重新创建，会有一定的策略来复用  Current Tree 里的节点，这样可以节省不必要的 Node 创建。
+
+WorkInProgress Tree 构造完毕，得到的就是新的 Fiber Tree，然后喜新厌旧（把 current 指针指向WorkInProgress Tree，丢掉旧的 Fiber Tree）就好了
+
+这样做的好处：
+
+- 能够复用内部对象（fiber）
+- 节省内存分配、GC的时间开销
+- 就算运行中有错误，也不会影响 View 上的数据
+
+每个 Fiber上都有个`alternate`属性，也指向一个 Fiber，创建 WorkInProgress 节点时优先取`alternate`，没有的话就创建一个。
+
+> TODO: 这里需要详解如何构造 WorkInProgress Tree 的策略。
+
+创建 WorkInProgress Tree 的过程也是一个 Diff 的过程，Diff 完成之后会生成一个 Effect List，这个 Effect List 就是最终 Commit 阶段用来处理副作用的阶段。
 
 ### Effects List
 
