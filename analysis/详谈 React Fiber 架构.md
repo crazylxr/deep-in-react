@@ -98,9 +98,12 @@ React 作为我最喜欢的框架，没有之一，我愿意花很多时间来�
 
 ## Fiber 是如何工作的
 
-Fiber 架构能够将任务分片，划分优先级，同时能够实现类似于操作系统中对线程的抢占式调度。
-
-> 如何进行抢占式的？
+1. `ReactDOM.render()` 和 `setState` 的时候开始创建更新。
+2. 将创建的更新加入任务队列，等待调度。
+3. 在 requestIdleCallback 空闲时执行任务。
+4. 从根节点开始遍历 Fiber Node，并且构建 WokeInProgress Tree。
+5. 生成 effectList。
+6. 根据 EffectList 更新 DOM。
 
 下面是一个简化的流程图：
 
@@ -168,11 +171,11 @@ Fiber 架构能够将任务分片，划分优先级，同时能够实现类似�
 };
 ```
 
-## Fiber Reconciler
+### Fiber Reconciler
+
+Fiber Reconciler 是 React 里的调和器，这也是任务调度完成之后，如何去执行每个任务，如何去更新每一个节点的过程。
 
 > 如果任务被打断了怎么办？
-
-> TODO：这个要详细讲，将工作循环将出来
 
 reconcile过程分为2个阶段（phase）：
 
@@ -181,13 +184,21 @@ reconcile过程分为2个阶段（phase）：
 
 render 阶段可以理解为就是 Diff 的过程，得出 Change(Effect List)，会执行声明如下的声明周期方法：
 
-- componentWillMount
-- componentWillReceiveProps
+- [UNSAFE_]componentWillMount（弃用）
+
+- [UNSAFE_]componentWillReceiveProps（弃用）
+
+- getDerivedStateFromProps
+
 - shouldComponentUpdate
-- componentWillUpdate
+
+- [UNSAFE_]componentWillUpdate（弃用）
+
+- render
 
 而 commit 阶段可以理解为就是将 Diff 的结果反映到真实 DOM 的过程，会执行如下的声明周期方法：
 
+- getSnapshotBeforeUpdate
 - componentDidMount
 - componentDidUpdate
 - componentWillUnmount
@@ -200,11 +211,9 @@ render 阶段可以理解为就是 Diff 的过程，得出 Change(Effect List)�
 
 > 在第一次渲染之后，React 最终得到一个 Fiber 树，它反映了用于渲染 UI 的应用程序的状态。这棵树通常被称为 **current 树（当前树）**。当 React 开始处理更新时，它会构建一个所谓的 **workInProgress 树（工作过程树）**，它反映了要刷新到屏幕的未来状态。
 
-
-
 React 在 render 第一次渲染时，会通过 React.createElement 创建一颗 Element 树，可以称之为 Virtual DOM Tree，由于要记录上下文信息，加入了 Fiber，每一个 Element 会对应一个 Fiber Node，将 Fiber Node 链接起来的结构成为 Fiber Tree。在后续的更新过程中（setState），每次重新渲染都会重新创建Element, 但是 Fiber 不会，Fiber 只会使用对应的 Element 中的数据来更新自己必要的属性，
 
-Fiber Tree 一个重要的特点是链表结构，将递归遍历编程循环遍历，然后配合 requestIdleCallback` API, 实现任务拆分、中断与恢复。
+Fiber Tree 一个重要的特点是链表结构，将递归遍历编程循环遍历，然后配合 requestIdleCallback API, 实现任务拆分、中断与恢复。
 
 这个链接的结构是怎么构成的呢，这就要主要到之前 Fiber Node 的节点的这几个字段：
 
@@ -273,63 +282,18 @@ React内部有自己的优先级判断逻辑，比如动画，用户交互等任
 
 https://juejin.im/post/5c052f95e51d4523d51c8300#heading-7
 
+## 后记
+
+本开始想一篇文章把 Fiber 讲透的，但是写着写着发现确实太多了，想写详细，估计要写几万字，所以我这篇文章的目的仅仅是在没有涉及到源码的情况下梳理了大致 React 的工作流程，对于细节，比如如何调度异步任务、如何去做 Diff 等等细节将以小节的方式一个个的结合源码进行分析。
+
 ## 一些问题
 
-> 如何调度任务？
+- 如何去划分任务优先级？
 
-分2部分：
-
-- 工作循环
-- 优先级机制
-
-工作循环是*基本的任务调度机制*，工作循环中每次处理一个任务（工作单元），处理完毕有一次喘息的机会：
-
-```
-// Flush asynchronous work until the deadline runs out of time.
-while (nextUnitOfWork !== null && !shouldYield()) {
-  nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-}
-```
-
-`shouldYield`就是看时间用完了没（`idleDeadline.timeRemaining()`），没用完的话继续处理下一个任务，用完了就结束，把时间控制权还给主线程，等下一次`requestIdleCallback`回调再接着做：
-
-```
-// If there's work left over, schedule a new callback.
-if (nextFlushedExpirationTime !== NoWork) {
-  scheduleCallbackWithExpiration(nextFlushedExpirationTime);
-}
-```
-
-也就是说，（不考虑突发事件的）正常调度是由工作循环来完成的，基本*规则*是：每个工作单元结束检查是否还有时间做下一个，没时间了就先“挂起”
-
-优先级机制用来处理突发事件与优化次序，例如：
-
-- 到commit阶段了，提高优先级
-- 高优任务做一半出错了，给降一下优先级
-- 抽空关注一下低优任务，别给饿死了
-- 如果对应DOM节点此刻不可见，给降到最低优先级
-
-这些策略用来动态调整任务调度，是工作循环的*辅助机制*，最先做最重要的事情
-
-> 如何收集任务结果？
-
-Fiber reconciliation的工作循环具体如下：
-
-1. 找到根节点优先级最高的workInProgress tree，取其待处理的节点（代表组件或DOM节点）
-2. 检查当前节点是否需要更新，不需要的话，直接到4
-3. 标记一下（打个tag），更新自己（组件更新`props`，`context`等，DOM节点记下DOM change），并为孩子生成workInProgress node
-4. 如果没有产生子节点，归并effect list（包含DOM change）到父级
-5. 把孩子或兄弟作为待处理节点，准备进入下一个工作循环。如果没有待处理节点（回到了workInProgress tree的根节点），工作循环结束
-
-通过每个节点更新结束时*向上归并effect list*来收集任务结果，reconciliation结束后，根节点的effect list里记录了包括DOM change在内的所有side effect
-
-> 如何中断/断点恢复？
-
-中断：检查当前正在处理的工作单元，保存当前成果（`firstEffect, lastEffect`），修改tag标记一下，迅速收尾并再开一个`requestIdleCallback`，下次有机会再做
-
-断点恢复：下次再处理到该工作单元时，看tag是被打断的任务，接着做未完成的部分或者重做
-
-P.S.无论是时间用尽“自然”中断，还是被高优任务粗暴打断，对中断机制来说都一样
+- 在 reconcile 过程的 render 阶段是如何去遍历链表，如何去构建 workInProgress 的？
+- 当任务被打断，如何恢复？
+- 如何去收集 EffectList？
+- 针对不同的组件类型如何进行更新？
 
 ## 参考
 
