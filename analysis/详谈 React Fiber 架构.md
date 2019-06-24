@@ -1,3 +1,5 @@
+
+
 ## 前言
 
 2016 年都已经透露出来的概念，这都 9102 年了，我才开始写 Fiber 的文章，表示惭愧呀。不过现在好的是关于 Fiber 的资料已经很丰富了，在写文章的时候参考资料比较多，比较容易深刻的理解。
@@ -21,6 +23,8 @@ React 作为我最喜欢的框架，没有之一，我愿意花很多时间来�
 ### React 16 之前的不足
 
 首先我们了解一下 React 的工作过程，当我们通过`render() `和 `setState()` 进行组件渲染和更新的时候，React 主要有两个阶段：
+
+![](https://user-images.githubusercontent.com/11912260/44942440-647e9980-ade3-11e8-97a9-389f42d995b1.png)
 
 **调和阶段(Reconciler)：**官方解释[点我查看](https://zh-hans.reactjs.org/docs/reconciliation.html)。React 会自顶向下通过递归，遍历新数据生成新的 Virtual DOM，然后通过 Diff 算法，找到需要变更的元素(Patch)，放到更新队列里面去。
 
@@ -105,9 +109,15 @@ React 作为我最喜欢的框架，没有之一，我愿意花很多时间来�
 5. 生成 effectList。
 6. 根据 EffectList 更新 DOM。
 
-下面是一个简化的流程图：
+下面是一个详细的执行过程图：
 
-![image-20190607172525729](http://ww3.sinaimg.cn/large/006tNc79ly1g3spwcg5jnj312c0lk151.jpg)
+![](https://s10.mogucdn.com/mlcdn/c45406/190406_24idh37ad28ig61f94ea6ckb108g4_1302x472.png)
+
+1. 第一部分从 `ReactDOM.render()` 方法开始，把接收的 React Element 转换为 Fiber 节点，并为其设置优先级，创建 Update，加入到更新队列，这部分主要是做一些初始数据的准备。
+2. 第二部分主要是三个函数：`scheduleWork`、`requestWork`、`performWork`，即安排工作、申请工作、正式工作三部曲，React 16 新增的异步调用的功能则在这部分实现，具体后面文章再介绍，这是 React 调度的关键过程。
+3. 第三部分是一个大循环，遍历所有的 Fiber 节点，通过 Diff 算法计算所有更新工作，产出 EffectList 给到 commit 阶段使用。这部分的核心是 beginWork 函数。
+
+
 
 ### Fiber Node
 
@@ -182,19 +192,20 @@ reconcile过程分为2个阶段（phase）：
 1. （可中断）render/reconciliation 通过构造 WorkInProgress Tree 得出 Change
 2. （不可中断）commit 应用这些DOM change
 
+
+
+在 reconciliation 阶段的每个工作循环中，每次处理一个 Fiber，处理完可以中断/挂起整个工作循环。通过每个节点更新结束时向上归并 effect list 来收集任务结果，reconciliation 结束后，根节点的effect list里记录了包括DOM change在内的所有side effect。
+
 render 阶段可以理解为就是 Diff 的过程，得出 Change(Effect List)，会执行声明如下的声明周期方法：
 
 - [UNSAFE_]componentWillMount（弃用）
-
 - [UNSAFE_]componentWillReceiveProps（弃用）
-
 - getDerivedStateFromProps
-
 - shouldComponentUpdate
-
 - [UNSAFE_]componentWillUpdate（弃用）
-
 - render
+
+在commit 阶段，`commitRoot`中遍历`nextEffect`，`invokeGuardedCallback(null, commitAllHostEffects, null)`;，根据`effect`的`effectTag`，进行对应的插入、更新、删除操作，根据tag不同，调用不同的更新方法，如class直接return,HostComponent和HostText才有对应的dom更新操作，通过`FiberNode.stateNode`找到对应的dom节点。例如commitUpdate中又会更新FiberProps和domProps。
 
 而 commit 阶段可以理解为就是将 Diff 的结果反映到真实 DOM 的过程，会执行如下的声明周期方法：
 
@@ -236,7 +247,7 @@ Fiber Tree 一个重要的特点是链表结构，将递归遍历编程循环遍
 
 采用的是一种叫**双缓冲技术（double buffering）**，这个时候就需要另外一颗树：WorkInProgress Tree。
 
-在 render 的时候创建的那颗 Fiber Tree 被称作为 Current Tree，另外 setState 的时候回重新构建一颗 WorkInProgress Tree，不过不是完全的重新创建，会有一定的策略来复用  Current Tree 里的节点，这样可以节省不必要的 Node 创建。
+在 `render` 的时候创建的那颗 Fiber Tree 被称作为 Current Tree，另外 `setState` 的时候回重新构建一颗 WorkInProgress Tree，不过不是完全的重新创建，会有一定的策略来复用  Current Tree 里的节点，这样可以节省不必要的 Node 创建。
 
 WorkInProgress Tree 构造完毕，得到的就是新的 Fiber Tree，然后喜新厌旧（把 current 指针指向WorkInProgress Tree，丢掉旧的 Fiber Tree）就好了
 
@@ -272,11 +283,7 @@ React 处理更新的元素要求非常迅速，为了达到这种水平的性�
 
 此列表的目标是标记具有 DOM 更新或其他相关副作用的节点。此列表是 `finishedWork` 树的子集，并使用 `nextEffect` 属性而不是 `current` 和 `workInProgress` 树中使用的 `child` 属性进行链接。
 
-
-
 React内部有自己的优先级判断逻辑，比如动画，用户交互等任务优先级就明显要高。
-
-
 
 > **我们需要重点理解的是，第一个 `render` 阶段的工作是可以异步执行的。**React 可以根据可用时间片来处理一个或多个 Fiber 节点，然后停下来暂存已完成的工作，并转而去处理某些事件，接着它再从它停止的地方继续执行。但有时候，它可能需要丢弃完成的工作并再次从顶部开始。由于在此阶段执行的工作不会导致任何用户可见的更改（如 DOM 更新），因此暂停行为才有了意义。**与之相反的是，后续 `commit` 阶段始终是同步的。**这是因为在此阶段执行的工作会导致用户可见的变化，例如 DOM 更新。这就是为什么 React 需要在一次单一过程中完成这些更新。
 
@@ -299,3 +306,4 @@ https://juejin.im/post/5c052f95e51d4523d51c8300#heading-7
 
 - [完全理解 React Fiber]([http://www.ayqy.net/blog/dive-into-react-fiber/#articleHeader4](http://www.ayqy.net/blog/dive-into-react-fiber/#articleHeader4))
 - [Fiber](https://happy-alex.github.io/js/react/fiber/)
+- [React16源码之React Fiber架构](https://github.com/HuJiaoHJ/blog/issues/7#)
