@@ -15,4 +15,3 @@ analysis 是源码解读相关的文章。
 ### 文章合集
 
 - [Deep In React 之浅谈 Fiber 架构(一)](https://github.com/crazylxr/deep-in-react/blob/master/analysis/Deep In React-详谈 React Fiber 架构(1).md)
-
