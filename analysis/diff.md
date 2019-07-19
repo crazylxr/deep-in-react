@@ -235,6 +235,34 @@ Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了
 
 因为fiber树是单链表结构，没有子节点数组这样的数据结构，也就没有可以供两端同时比较的尾部游标。所以React的这个算法是一个简化的两端比较法，只从头部开始比较。第一次遍历新数组，对上了，新老index都++，比较新老数组哪些元素是一样的，（通过updateSlot，比较key），如果是同样的就update。第一次遍历玩了，如果新数组遍历完了，那就可以把老数组中剩余的fiber删除了。如果老数组完了新数组还没完，那就把新数组剩下的都插入。如果这些情况都不是，就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素，上面的删除只是fast path，特殊情况）
 
+前面已经说了，Diff 的目的就是为了复用，对于 Array 就不能像之前的节点那样，仅仅对比一下元素的 key 或者 元素类型就行，因为数组里面是好多个元素。你可以在头脑里思考两分钟如何进行复用节点，再看 React 是怎么做的，然后对比一下孰优孰劣。
+
+
+
+从头部遍历。第一次遍历新数组，新老index都++，比较新老数组哪些元素是一样的，（通过updateSlot，比较key），如果是同样的就update。
+
+第一次遍历完了，如果新数组遍历完了，那就可以把老数组中剩余的fiber删除了。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L814)
+
+如果老数组完了新数组还没完，那就把新数组剩下的都插入。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L820)
+
+如果这些情况都不是（新老数组长度一致），就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L848)
+
+最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素
+
+
+
+#### 1. 相同位置(index)进行比较
+
+
+
+#### 2. 
+
+#### 3. 
+
+#### 4. 
+
+
+
 
 
 ```javascript
