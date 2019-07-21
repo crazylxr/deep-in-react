@@ -120,7 +120,7 @@ created.return = returnFiber;
 
 有两个点：1. key 相同。 2. 节点的类型相同。
 
-如果以上两点相同，就代表这个节点只是变化了内容，不需要创建新的接口，可以复用的。
+如果以上两点相同，就代表这个节点只是变化了内容，不需要创建新的节点，可以复用的。
 
 对应的源码如下：
 
@@ -227,7 +227,7 @@ if (element.type === REACT_FRAGMENT_TYPE) {
 }
 ```
 
-对于 Fragment 节点和一般的 Element 节点创建的方式不同，因为 Fragment 本来就是一个无意义的节点，他真正需要创建 Fiber 的是它的 children，而不是它自己，所以 `createFiberFromFragment` 传递的不是 element ，而是 element.props.children。
+对于 Fragment 节点和一般的 Element 节点创建的方式不同，因为 Fragment 本来就是一个无意义的节点，他真正需要创建 Fiber 的是它的 children，而不是它自己，所以 `createFiberFromFragment` 传递的不是 `element `，而是 `element.props.children`。
 
 ### Diff Array
 
@@ -253,13 +253,162 @@ Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了
 
 #### 1. 相同位置(index)进行比较
 
+相同位置进行对比，这个是比较容易想到的一种方式，还是举个例子加深一下印象。
 
+![image-20190721212259855](/Users/licai/Library/Application Support/typora-user-images/image-20190721212259855.png)
 
-#### 2. 
+这已经是一个非常简单的例子了，div 的 child 是一个数组，有 AAA、BBB 然后还有其他的兄弟节点，在做 diff 的时候就可以从新旧的数组中按照索引一一对比，如果可以复用，就把这个节点从老的链表里面删除，不能复用的话再进行其他的复用策略。
 
-#### 3. 
+那如果判断节点是否可以复用呢？有了前面的 ReactElement 和 TextNode 复用的经验，这个也类似，因为是一一对比嘛，相当于是一个节点一个节点的对比。
 
-#### 4. 
+不过对于 newChild 可能会有很多种类型，简单的看下源码是如何进行判断的。
+
+```javascript
+ const key = oldFiber !== null ? oldFiber.key : null;
+```
+
+前面的经验可得，判断是否可以复用，常常会根据 key 是否相同来决定，所以首先获取了老节点的 key 是否存在。如果不存在老节点很可能是 TextNode 或者是 Fragment。
+
+接下来再看 newChild 为不同类型的时候是如何进行处理的。
+
+**当 newChild 是 TextNode 的时候**
+
+```javascript
+if (typeof newChild === 'string' || typeof newChild === 'number') {
+  // 对于新的节点如果是 string 或者 number，那么都是没有 key 的，
+  // 所有如果老的节点有 key 的话，就不能复用，直接返回 null。
+  // 老的节点 key 为 null 的话，代表老的节点是文本节点，就可以复用
+  if (key !== null) {
+    return null;
+  }
+
+  return updateTextNode(
+    returnFiber,
+    oldFiber,
+    '' + newChild,
+    expirationTime,
+  );
+}
+```
+
+如果 key 不为 null，那么就代表老节点不是 TextNode，而新节点又是 TextNode，所以返回 null，不能复用，反之则可以复用，调用 `updateTextNode` 方法。
+
+> 注意，updateTextNode 里面包含了首次渲染的时候的逻辑，首次渲染的时候回插入一个 TextNode，而不是复用。
+
+**当 newChild 是 Object 的时候**
+
+newChild 是 Object 的时候基本上走的就是 ReactElement 的逻辑了，判断 key 和 元素的类型是否相等来判断是否可以复用。
+
+```javascript
+if (typeof newChild === 'object' && newChild !== null) {
+  // 有 $$typeof 代表就是 ReactElement
+  switch (newChild.$$typeof) {
+    case REACT_ELEMENT_TYPE: {
+				// ReactElement 的逻辑 
+    }
+    case REACT_PORTAL_TYPE: {
+				// 调用 updatePortal
+    }
+  }
+
+  if (isArray(newChild) || getIteratorFn(newChild)) {
+    if (key !== null) {
+      return null;
+    }
+
+    return updateFragment(
+      returnFiber,
+      oldFiber,
+      newChild,
+      expirationTime,
+      null,
+    );
+  }
+}
+```
+
+首先判断是否是对象，用的是 `typeof newChild === 'object' && newChild !== null` ，注意要加 `!== null`，因为 `typeof null` 也是 object。
+
+然后通过 $$typeof 判断是 REACT_ELEMENT_TYPE 还是 REACT_PORTAL_TYPE，分别调用不同的复用逻辑，然后由于数组也是 Object ，所以这个 if 里面也有数组的复用逻辑。
+
+我相信到这里应该对于应该对于如何相同位置的节点如何对比有清晰的认识了。另外还有问题，那就是如何循环一个一个对比呢？
+
+这里要注意，新的节点的 children 是虚拟 DOM，所以这个 children 是一个数组，而对于之前提到的老的节点树是链表。
+
+那么循环一个一个对比，就是遍历数组的过程。
+
+```javascript
+let newIdx = 0 // 新数组的索引
+for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
+  // 遍历老的节点
+  nextOldFiber = oldFiber.sibling; 
+  // 返回复用节点的函数，newFiber 就是复用的节点。
+  // 如果为空，就代表同位置对比已经不能复用了，循环结束。
+  const newFiber = updateSlot(
+    returnFiber,
+    oldFiber,
+    newChildren[newIdx],
+    expirationTime,
+  );
+  
+  if (newFiber === null) {
+    break;
+  }
+  
+  // 其他 code，比如删除复用的节点
+}
+```
+
+这并不是源码的全部源码，我只是把思路给贴出来了。
+
+这是第一次遍历新数组，通过调用 `updateSlot` 来对比新老元素，前面介绍的如何对比新老节点的代码都是在这个函数里。这个循环会把所以的从前面开始能复用的节点，都复用到。比如上面我们画的图，如果两个链表里面的 **？？？**节点，不相同，那么 newFiber 为 null，这个循环就会跳出。
+
+跳出来了，就会有两种情况。
+
+- 新节点已经遍历完毕
+- 老节点已经遍历完毕
+
+#### 2. 新节点已经遍历完毕
+
+如果新节点已经遍历完毕的话，也就是没有要更新的了，这种情况一般就是从原来的数组里面删除了元素，那么直接把剩下的老节点删除了就行了。还是拿上面的图的例子举例，老 的链表里**？？？**还有很多节点，而新的链表**？？？**已经没有节点了，所以老的链表**？？？**不管是有多少节点，都不能复用了，所以没用了，直接删除。
+
+```javascript
+if (newIdx === newChildren.length) {
+  // 新的 children 长度已经够了，所以把剩下的删除掉
+  deleteRemainingChildren(returnFiber, oldFiber);
+  return resultingFirstChild;
+}
+```
+
+注意这里是直接 `return` 了哦，没有继续往下执行了。
+
+#### 3. 老节点已经遍历完毕
+
+如果老的节点在第一次循环的时候就被复用完了，新的节点还有，很有可能就是新增了节点的情况。那么这个时候只需要根据把剩余新的节点直接创建 **Fiber** 就行了。
+
+```javascript
+if (oldFiber === null) {
+  // 如果老的节点已经被复用完了，对剩下的新节点进行操作
+  for (; newIdx < newChildren.length; newIdx++) {
+    const newFiber = createChild(
+      returnFiber,
+      newChildren[newIdx],
+      expirationTime,
+    );
+  }
+  return resultingFirstChild;
+}
+```
+
+`oldFiber === null` 就是用来判断老的 Fiber 节点变量完了的代码，Fiber 链表是一个单向链表，所以为 null 的时候代表已经结束了。所以就直接把剩余的 newChild 通过循环创建 Fiber。
+
+到这里，目前简单的对数组进行增、删节点的对比还是比较简单，接下来就是移动的情况是如何进行复用的呢？
+
+#### 4. 移动的情况如何进行节点复用
+
+对于移动的情况，首先要思考，怎么能判断数组是否发生过移动操作呢？
+
+如果给你两个数组，你可能能判断出来数组是否发生过移动。
 
 
 
