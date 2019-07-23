@@ -408,9 +408,72 @@ if (oldFiber === null) {
 
 对于移动的情况，首先要思考，怎么能判断数组是否发生过移动操作呢？
 
-如果给你两个数组，你可能能判断出来数组是否发生过移动。
+如果给你两个数组，你是否能判断出来数组是否发生过移动。
+
+答案是：老的数组和新的数组里面都有这个元素，而且位置不相同。
+
+从两个数组中找到相同元素(是指可复用的节点)，方法有很多种，来看看 React 是如何高效的找出来的。
+
+**把所有老数组元素按 key 或者是 index 放 Map 里，然后遍历新数组，根据新数组的 key 或者 index 快速找到老数组里面是否有可复用的。**
+
+```javascript
+function mapRemainingChildren(
+ returnFiber: Fiber,
+ currentFirstChild: Fiber,
+): Map<string | number, Fiber> {
+  const existingChildren: Map<string | number, Fiber> = new Map();
+
+  let existingChild = currentFirstChild; // currentFirstChild 是老数组链表的第一个元素
+  while (existingChild !== null) {
+  // 看到这里可能会疑惑怎么在 Map 里面的key 是 fiber 的key 还是 fiber 的 index 呢？
+  // 我觉得是根据数据类型，fiber 的key 是字符串，而 index 是数字，这样就能区分了
+  // 所以这里是用的 map，而不是对象，如果是对象的key 就不能区分 字符串类型和数字类型了。
+    if (existingChild.key !== null) {
+      existingChildren.set(existingChild.key, existingChild);
+    } else {
+      existingChildren.set(existingChild.index, existingChild);
+    }
+    existingChild = existingChild.sibling;
+	}
+	return existingChildren;
+}
+```
+
+这个 `mapRemainingChildren` 就是将老数组存放到 Map 里面。元素有 key 就 Map 的键就存 key，没有 key 就存 index，key 一定是字符串，index 一定是 number，所以取的时候是能区分的，所以这里用的是 Map，而不是对象，如果是对象，属性是字符串，就没办法区别是 key 还是 index 了。
+
+现在有了这个 Map，剩下的就是循环新数组，找到 Map 里面可以复用的节点，如果找不到就创建，这个逻辑基本上跟 `updateSlot` 的复用逻辑很像，一个是从老数组链表中获取节点对比，一个是从 Map 里获取节点对比。
+
+```javascript
+// 如果前面的算法有复用，那么 newIdx 就不从 0 开始
+for (; newIdx < newChildren.length; newIdx++) {
+  const newFiber = updateFromMap(
+    existingChildren,
+    returnFiber,
+    newIdx,
+    newChildren[newIdx],
+    expirationTime,
+  );
+ // 省略删除 existingChildren 中的元素和添加 Placement 副作用的情况
+}
+```
+
+到这里新数组遍历完毕，也就是**同一层**的 Diff 过程完毕，接下来进行总结一下。
+
+##### 总结
+
+对于数组的 diff 策略，相对比较复杂，最后来梳理一下这个策略，其实还是很简单，只是看源码的时候比较难懂。
+
+我们可以把整个过程分为三个阶段：
+
+1. 第一遍历新数组，新老数组相同 index 进行对比，通过 `updateSlot`方法找到可以复用的节点，直到找到不可以复用的节点就退出循环。
+2. 第一遍历完之后，删除剩余的老节点，追加剩余的新节点的过程。如果是新节点已遍历完成，就将剩余的老节点批量删除；如果是老节点遍历完成仍有新节点剩余，则将新节点直接插入。
+3. 把所有老数组元素按 key 或 index 放 Map 里，然后遍历新数组，插入老数组的元素，这是移动的情况。
 
 
+
+如果这些情况都不是（新老数组长度一致），就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。
+
+最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素）
 
 
 
