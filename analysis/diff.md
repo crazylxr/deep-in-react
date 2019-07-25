@@ -1,28 +1,42 @@
-在上一篇将 React Fiber 架构中，已经说到过，React 现在将整体的数据结构从树改为了链表结构。
+## 前言
 
-那么就需要你掌握链表相关的基本操作，如果不熟悉链表的操作，请先熟悉链表的操作。
+我相信在看这篇文章的读者一般都已经了解过 React 16 以前的 Diff 算法了，这个算法也算是 React 跨时代或者说最有影响力的一点了，使 React 在保持了可维护性的基础上性能大大的提高，但 Diff 过程不仅不是免费的，而且对性能影响很大，有时候更新页面的时候往往 Diff 所花的时间 js 运行时间比 Rendering 和 Painting 花费更多的时间，所以我一直传达的观念是 React 或者说框架的意义是**为了提高代码的可维护性**，而**不是为了提高性能**的，现在所做的提升性能的操作，只是在可维护性的基础上对性能的优化。具体可以参考我公众号以前发的这两篇文章：
 
+- [别再说虚拟 DOM 快了，要被打脸的](https://mp.weixin.qq.com/s/XR3-3MNCYY2pg6yVwVQohQ)
 
+- [深入理解虚拟 DOM，它真的不快](https://mp.weixin.qq.com/s/cz5DBpqFiadL4IQofiWY3A)
 
-而链表的每一个节点是 Fiber，而不是在 16 之前的虚拟DOM 节点。
+> 如果你对标题不满意，请把文章看完，至少也得把文章最后的结论好好看下
 
-> 我这里说的虚拟 DOM 节点是指 React.createElement 方法所产生的节点。虚拟 DOM tree 只维护了组件状态以及组件与 DOM 树的关系，Fiber Node 承载的东西比 虚拟 DOM 节点多很多。
+在上一篇将 React Fiber 架构中，已经说到过，React 现在将整体的数据结构从树改为了链表结构。所以相应的 Diff 算法也得改变，以为以前的 Diff 算法就是基于树的。
 
+老的 Diff 算法提出了三个进行组合来保证整体界面构建的性能，具体是：
 
+1. Web UI 中 DOM 节点跨层级的移动操作特别少，可以忽略不计。
+2. 拥有相同类的两个组件将会生成相似的树形结构，拥有不同类的两个组件将会生成不同的树形结构。
+3. 对于同一层级的一组子节点，它们可以通过唯一 id 进行区分。
 
-**了解 Diff**
+基于以上三个前提策略，React 分别对 tree diff、component diff 以及 element diff 进行算法优化。
 
-我们知道 Diff 就是新旧节点的对比，在上文中也说道了，这里面的 Diff 主要是构建 currentInWorkProgress 的过程，同时得到 Effect List，给下一个阶段 commit 做准备。
+具体老的算法可以见这篇文章：[React 源码剖析系列 － 不可思议的 react diff](https://zhuanlan.zhihu.com/p/20346379)
 
-是一层一层的比较。
+说实话，老的 Diff 算法还是挺复杂的，你仅仅看上面这篇文章估计一时半会都不能理解，更别说看源码了。对于 React 16 的 Diff 算法(我觉得都不能把它称作算法，最多叫个 Diff 策略)其实还是蛮简单的，React 16 是整个调度流程感觉比较难，我在前面将 Fiber 的文章已经简单的梳理过了，后面也会慢慢的逐个攻破。
 
-React16 的 diff 策略采用从链表头部开始比较的算法,是层次遍历，算法是建立在一个节点的插入、删除、移动等操作都是在节点树的同一层级中进行的
+接下来就开始正式的讲解 React 16 的 Diff 策略吧！
 
 ## Diff
 
 **做 Diff 的目的就是为了复用节点。**
 
-对于 Diff， 就是新老节点的对比，我们以新节点为标准，然后来构建整个 currentInWorkProgress，对于新的 children 会有四种情况。
+而链表的每一个节点是 Fiber，而不是在 16 之前的虚拟DOM 节点。
+
+> 我这里说的虚拟 DOM 节点是指 React.createElement 方法所产生的节点。虚拟 DOM tree 只维护了组件状态以及组件与 DOM 树的关系，Fiber Node 承载的东西比 虚拟 DOM 节点多很多。
+
+我们知道 Diff 就是新旧节点的对比，在[上文](https://mp.weixin.qq.com/s/dONYc-Y96baiXBXpwh1w3A)中也说道了，这里面的 Diff 主要是构建 currentInWorkProgress 的过程，同时得到 Effect List，给下一个阶段 commit 做准备。
+
+React16 的 diff 策略采用从链表头部开始比较的算法,是层次遍历，算法是建立在一个节点的插入、删除、移动等操作都是在节点树的**同一层级**中进行的。
+
+对于 Diff， 新老节点的对比，我们以新节点为标准，然后来构建整个 currentInWorkProgress，对于新的 children 会有四种情况。
 
 - TextNode(包含字符串和数字)
 - 单个 React Element(通过该节点是否有 $$typeof 区分)
@@ -233,23 +247,9 @@ if (element.type === REACT_FRAGMENT_TYPE) {
 
 Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了很多的优化，不过请你放心，认真看完我的讲解，最难的也会很容易理解，废话不多说，开始吧！
 
-因为fiber树是单链表结构，没有子节点数组这样的数据结构，也就没有可以供两端同时比较的尾部游标。所以React的这个算法是一个简化的两端比较法，只从头部开始比较。第一次遍历新数组，对上了，新老index都++，比较新老数组哪些元素是一样的，（通过updateSlot，比较key），如果是同样的就update。第一次遍历玩了，如果新数组遍历完了，那就可以把老数组中剩余的fiber删除了。如果老数组完了新数组还没完，那就把新数组剩下的都插入。如果这些情况都不是，就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素，上面的删除只是fast path，特殊情况）
+因为fiber树是单链表结构，没有子节点数组这样的数据结构，也就没有可以供两端同时比较的尾部游标。所以React的这个算法是一个简化的两端比较法，只从头部开始比较。
 
 前面已经说了，Diff 的目的就是为了复用，对于 Array 就不能像之前的节点那样，仅仅对比一下元素的 key 或者 元素类型就行，因为数组里面是好多个元素。你可以在头脑里思考两分钟如何进行复用节点，再看 React 是怎么做的，然后对比一下孰优孰劣。
-
-
-
-从头部遍历。第一次遍历新数组，新老index都++，比较新老数组哪些元素是一样的，（通过updateSlot，比较key），如果是同样的就update。
-
-第一次遍历完了，如果新数组遍历完了，那就可以把老数组中剩余的fiber删除了。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L814)
-
-如果老数组完了新数组还没完，那就把新数组剩下的都插入。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L820)
-
-如果这些情况都不是（新老数组长度一致），就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。[链接](https://github.com/facebook/react/blob/v16.4.1/packages/react-reconciler/src/ReactChildFiber.js#L848)
-
-最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素
-
-
 
 #### 1. 相同位置(index)进行比较
 
@@ -471,18 +471,7 @@ for (; newIdx < newChildren.length; newIdx++) {
 
 
 
-如果这些情况都不是（新老数组长度一致），就把所有老数组元素按key放map里，然后遍历新数组，插入老数组的元素，这是移动的情况。
-
-最后再删除没有被上述情况涉及的元素（也就是老数组中有新数组中无的元素）
-
-
-
 ```javascript
-
-
-在介绍的之前需要把 一些 React 中的数据结构先介绍，不然有些链表操作不会懂！
-
-
 react 的 diff 算法是从 `reconcileChildren` 开始的
 
 export function reconcileChildren(
