@@ -149,7 +149,7 @@ return (
 
 对应的单链表结构图：
 
-![image-20190714223931338](http://imgs.taoweng.site/2019-07-14-143931.png)
+![image-20190714223931338](http://imgs.taoweng.site/2019-07-28-134126.png)
 
 
 
@@ -247,7 +247,7 @@ deleteRemainingChildren(returnFiber, child);
 
 我们现在来看这种情况：
 
-![image-20190714232052778](/Users/licai/Library/Application Support/typora-user-images/image-20190714232052778.png)
+![image-20190714232052778](http://imgs.taoweng.site/2019-07-28-134319.jpg)
 
 这种情况就是有可能更新的时候删除了一个节点，但是另外的节点还留着。
 
@@ -326,7 +326,7 @@ Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了
 
 相同位置进行对比，这个是比较容易想到的一种方式，还是举个例子加深一下印象。
 
-![image-20190721212259855](/Users/licai/Library/Application Support/typora-user-images/image-20190721212259855.png)
+![image-20190721212259855](http://imgs.taoweng.site/2019-07-28-134317.jpg)
 
 这已经是一个非常简单的例子了，div 的 child 是一个数组，有 AAA、BBB 然后还有其他的兄弟节点，在做 diff 的时候就可以从新旧的数组中按照索引一一对比，如果可以复用，就把这个节点从老的链表里面删除，不能复用的话再进行其他的复用策略。
 
@@ -535,19 +535,19 @@ for (; newIdx < newChildren.length; newIdx++) {
 以下效果动态演示来自于文章：[React Diff 源码分析](https://slane.cn/2018/08/09/react-diff-yuan-ma-fen-xi/)，我觉得这个演示非常的形象，有助于理解。
 
 这里渲染一个可输入的数组。
-![1](https://cdn.slane.cn/2018/08/1.png)
+![1](http://imgs.taoweng.site/2019-07-28-134128.png)
 
 当第一种情况，新数组遍历完了，老数组剩余直接删除（12345→1234 删除 5）：
 
-![img](https://cdn.slane.cn/2018-08-09-18-11-58-2.gif)
+![img](http://imgs.taoweng.site/2019-07-28-134130.gif)
 
 新数组没完，老数组完了（1234→1234567 插入 567）：
 
-![img](https://cdn.slane.cn/2018-08-09-18-11-58-3.gif)
+![img](http://imgs.taoweng.site/2019-07-28-134136.gif)
 
 移动的情况，即之前就存在这个元素，后续只是顺序改变（123 → 4321 插入4，移动2 1）：
 
-![img](https://cdn.slane.cn/2018-08-09-18-11-58-4.gif)
+![img](http://imgs.taoweng.site/2019-07-28-134140.gif)
 
 最后删除没有涉及的元素。
 
@@ -569,4 +569,4 @@ for (; newIdx < newChildren.length; newIdx++) {
 
 我是桃翁，一个爱思考的前端er，想了解关于更多的前端相关的，请关注我的公号：「前端桃园」
 
-![](http://imgs.taoweng.site/2019-06-26-013433.jpg)
+![](http://imgs.taoweng.site/2019-07-28-134144.jpg)
