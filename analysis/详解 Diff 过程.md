@@ -548,7 +548,7 @@ for (; newIdx < newChildren.length; newIdx++) {
 
 当第一种情况，新数组遍历完了，老数组剩余直接删除（12345→1234 删除 5）：
 
-![img](http://imgs.taoweng.site/2019-07-28-134130.gif)
+![img](https://cdn.slane.cn/2018-08-09-18-11-58-2.gif)
 
 新数组没完，老数组完了（1234→1234567 插入 567）：
 
