@@ -1,3 +1,5 @@
+
+
 ## 前言
 
 我相信在看这篇文章的读者一般都已经了解过 React 16 以前的 Diff 算法了，这个算法也算是 React 跨时代或者说最有影响力的一点了，使 React 在保持了可维护性的基础上性能大大的提高，但 Diff 过程不仅不是免费的，而且对性能影响很大，有时候更新页面的时候往往 Diff 所花的时间 js 运行时间比 Rendering 和 Painting 花费更多的时间，所以我一直传达的观念是 React 或者说框架的意义是**为了提高代码的可维护性**，而**不是为了提高性能**的，现在所做的提升性能的操作，只是在可维护性的基础上对性能的优化。具体可以参考我公众号以前发的这两篇文章：
@@ -10,7 +12,7 @@
 
 在上一篇将 React Fiber 架构中，已经说到过，React 现在将整体的数据结构从树改为了链表结构。所以相应的 Diff 算法也得改变，以为以前的 Diff 算法就是基于树的。
 
-老的 Diff 算法提出了三个进行组合来保证整体界面构建的性能，具体是：
+老的 Diff 算法提出了三个策略来保证整体界面构建的性能，具体是：
 
 1. Web UI 中 DOM 节点跨层级的移动操作特别少，可以忽略不计。
 2. 拥有相同类的两个组件将会生成相似的树形结构，拥有不同类的两个组件将会生成不同的树形结构。
@@ -24,15 +26,15 @@
 
 接下来就开始正式的讲解 React 16 的 Diff 策略吧！
 
-## Diff
+## Diff 简介
 
 **做 Diff 的目的就是为了复用节点。**
 
-而链表的每一个节点是 Fiber，而不是在 16 之前的虚拟DOM 节点。
+链表的每一个节点是 Fiber，而不是在 16 之前的虚拟DOM 节点。
 
 > 我这里说的虚拟 DOM 节点是指 React.createElement 方法所产生的节点。虚拟 DOM tree 只维护了组件状态以及组件与 DOM 树的关系，Fiber Node 承载的东西比 虚拟 DOM 节点多很多。
 
-我们知道 Diff 就是新旧节点的对比，在[上文](https://mp.weixin.qq.com/s/dONYc-Y96baiXBXpwh1w3A)中也说道了，这里面的 Diff 主要是构建 currentInWorkProgress 的过程，同时得到 Effect List，给下一个阶段 commit 做准备。
+Diff 就是新旧节点的对比，在[上一篇](https://mp.weixin.qq.com/s/dONYc-Y96baiXBXpwh1w3A)中也说道了，这里面的 Diff 主要是构建 currentInWorkProgress 的过程，同时得到 Effect List，给下一个阶段 commit 做准备。
 
 React16 的 diff 策略采用从链表头部开始比较的算法,是层次遍历，算法是建立在一个节点的插入、删除、移动等操作都是在节点树的**同一层级**中进行的。
 
@@ -45,9 +47,67 @@ React16 的 diff 策略采用从链表头部开始比较的算法,是层次遍�
 
 那么我们就来一步一步的看这四种类型是如何进行 diff 的。
 
-### Diff TextNode
+## 前置知识介绍
+
+ 这篇文章主要是从 React 的源码的逻辑出发介绍的，所以介绍之前了解下只怎么进入到这个 diff 函数的，react 的 diff 算法是从 `reconcileChildren` 开始的
+
+```javascript
+export function reconcileChildren(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  nextChildren: any,
+  renderExpirationTime: ExpirationTime,
+) {
+  if (current === null) {
+    workInProgress.child = mountChildFibers(
+      workInProgress,
+      null,
+      nextChildren,
+      renderExpirationTime,
+    );
+  } else {
+    workInProgress.child = reconcileChildFibers(
+      workInProgress,
+      current.child,
+      nextChildren,
+      renderExpirationTime,
+    );
+  }
+}
+```
+
+`reconcileChildren` 只是一个入口函数，如果首次渲染，current 空 null，就通过 `mountChildFibers` 创建子节点的 Fiber 实例。如果不是首次渲染，就调用 `reconcileChildFibers`去做 diff，然后得出 effect list。
+
+接下来再看看 mountChildFibers 和 reconcileChildFibers 有什么区别：
+
+```javascript
+export const reconcileChildFibers = ChildReconciler(true);
+export const mountChildFibers = ChildReconciler(false);
+
+```
+
+他们都是通过 `ChildReconciler` 函数来的，只是传递的参数不同而已。这个参数叫`shouldTrackSideEffects`，他的作用是判断是否要增加一些`effectTag`，主要是用来优化初次渲染的，因为初次渲染没有更新操作。
+
+```javascript
+function reconcileChildFibers(
+  returnFiber: Fiber,
+  currentFirstChild: Fiber | null,
+  newChild: any,
+  expirationTime: ExpirationTime,
+): Fiber | null {
+  // 主要的 Diff 逻辑
+}
+```
+
+`reconcileChildFibers` 就是 Diff 部分的主体代码，这个函数超级长，是一个包装函数，详细的源码注释可以见这里。
+
+
+
+## Diff TextNode
 
 首先看 TextNode，因为它是最简单的，担心直接看到难的，然后就打击你的信心。
+
+看下面两个小 demo。
 
 ```javascript
 // demo1：当前 ui 对应的节点的 jsx
@@ -87,7 +147,7 @@ return (
 1. currentFirstNode 是 TextNode
 2. currentFirstNode 不是 TextNode
 
-> currentFirstNode
+> currentFirstNode 是当前该层的第一个节点
 
 **为什么要分两种情况呢？**原因就是为了复用节点
 
@@ -126,7 +186,7 @@ created.return = returnFiber;
 
 > 注意：删除节点不会真的从链表里面把节点删除，只是打一个 delete 的 tag，当 commit 的时候才会真正的去删除。
 
-### Diff React Element
+## Diff React Element
 
 有了上面 TextNode 的 Diff 经验，那么来理解 React Element 的 Diff 就比较简单了，因为他们的思路是一致的：先找有没有可以复用的节点，如果没有就另外创建一个。
 
@@ -243,15 +303,15 @@ if (element.type === REACT_FRAGMENT_TYPE) {
 
 对于 Fragment 节点和一般的 Element 节点创建的方式不同，因为 Fragment 本来就是一个无意义的节点，他真正需要创建 Fiber 的是它的 children，而不是它自己，所以 `createFiberFromFragment` 传递的不是 `element `，而是 `element.props.children`。
 
-### Diff Array
+## Diff Array
 
 Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了很多的优化，不过请你放心，认真看完我的讲解，最难的也会很容易理解，废话不多说，开始吧！
 
-因为fiber树是单链表结构，没有子节点数组这样的数据结构，也就没有可以供两端同时比较的尾部游标。所以React的这个算法是一个简化的两端比较法，只从头部开始比较。
+因为 Fiber 树是单链表结构，没有子节点数组这样的数据结构，也就没有可以供两端同时比较的尾部游标。所以React的这个算法是一个简化的两端比较法，只从头部开始比较。
 
 前面已经说了，Diff 的目的就是为了复用，对于 Array 就不能像之前的节点那样，仅仅对比一下元素的 key 或者 元素类型就行，因为数组里面是好多个元素。你可以在头脑里思考两分钟如何进行复用节点，再看 React 是怎么做的，然后对比一下孰优孰劣。
 
-#### 1. 相同位置(index)进行比较
+### 1. 相同位置(index)进行比较
 
 相同位置进行对比，这个是比较容易想到的一种方式，还是举个例子加深一下印象。
 
@@ -368,7 +428,7 @@ for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
 - 新节点已经遍历完毕
 - 老节点已经遍历完毕
 
-#### 2. 新节点已经遍历完毕
+### 2. 新节点已经遍历完毕
 
 如果新节点已经遍历完毕的话，也就是没有要更新的了，这种情况一般就是从原来的数组里面删除了元素，那么直接把剩下的老节点删除了就行了。还是拿上面的图的例子举例，老 的链表里**？？？**还有很多节点，而新的链表**？？？**已经没有节点了，所以老的链表**？？？**不管是有多少节点，都不能复用了，所以没用了，直接删除。
 
@@ -382,7 +442,7 @@ if (newIdx === newChildren.length) {
 
 注意这里是直接 `return` 了哦，没有继续往下执行了。
 
-#### 3. 老节点已经遍历完毕
+### 3. 老节点已经遍历完毕
 
 如果老的节点在第一次循环的时候就被复用完了，新的节点还有，很有可能就是新增了节点的情况。那么这个时候只需要根据把剩余新的节点直接创建 **Fiber** 就行了。
 
@@ -404,7 +464,7 @@ if (oldFiber === null) {
 
 到这里，目前简单的对数组进行增、删节点的对比还是比较简单，接下来就是移动的情况是如何进行复用的呢？
 
-#### 4. 移动的情况如何进行节点复用
+### 4. 移动的情况如何进行节点复用
 
 对于移动的情况，首先要思考，怎么能判断数组是否发生过移动操作呢？
 
@@ -459,60 +519,19 @@ for (; newIdx < newChildren.length; newIdx++) {
 
 到这里新数组遍历完毕，也就是**同一层**的 Diff 过程完毕，接下来进行总结一下。
 
-##### 总结
+### 总结
 
 对于数组的 diff 策略，相对比较复杂，最后来梳理一下这个策略，其实还是很简单，只是看源码的时候比较难懂。
 
 我们可以把整个过程分为三个阶段：
 
 1. 第一遍历新数组，新老数组相同 index 进行对比，通过 `updateSlot`方法找到可以复用的节点，直到找到不可以复用的节点就退出循环。
+
 2. 第一遍历完之后，删除剩余的老节点，追加剩余的新节点的过程。如果是新节点已遍历完成，就将剩余的老节点批量删除；如果是老节点遍历完成仍有新节点剩余，则将新节点直接插入。
+
 3. 把所有老数组元素按 key 或 index 放 Map 里，然后遍历新数组，插入老数组的元素，这是移动的情况。
 
-
-
-```javascript
-react 的 diff 算法是从 `reconcileChildren` 开始的
-
-export function reconcileChildren(
-  current: Fiber | null,
-  workInProgress: Fiber,
-  nextChildren: any,
-  renderExpirationTime: ExpirationTime,
-) {
-  if (current === null) {
-    workInProgress.child = mountChildFibers(
-      workInProgress,
-      null,
-      nextChildren,
-      renderExpirationTime,
-    );
-  } else {
-    workInProgress.child = reconcileChildFibers(
-      workInProgress,
-      current.child,
-      nextChildren,
-      renderExpirationTime,
-    );
-  }
-}
-```
-
-
-
-`reconcileChildren` 只是一个入口函数，如果首次渲染，current 空 null，就通过 `mountChildFibers` 创建子节点的 Fiber 实例。如果不是首次渲染，就调用 `reconcileChildFibers`去做 diff，然后得出 effect list。
-
-
-
-接下来再看看 mountChildFibers 和 reconcileChildFibers 有什么区别：
-
-```javascript
-export const reconcileChildFibers = ChildReconciler(true);
-export const mountChildFibers = ChildReconciler(false);
-
-```
-
-他们都是通过 `ChildReconciler` 函数来的，只是传递的参数不同而已。这个参数叫`shouldTrackSideEffects`，他的作用是判断是否要增加一些`effectTag`，主要是用来优化初次渲染的，因为初次渲染没有更新操作
+   
 
 
 
