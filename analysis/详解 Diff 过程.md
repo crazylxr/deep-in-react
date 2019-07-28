@@ -7,7 +7,6 @@
 我相信在看这篇文章的读者一般都已经了解过 React 16 以前的 Diff 算法了，这个算法也算是 React 跨时代或者说最有影响力的一点了，使 React 在保持了可维护性的基础上性能大大的提高，但 Diff 过程不仅不是免费的，而且对性能影响很大，有时候更新页面的时候往往 Diff 所花的时间 js 运行时间比 Rendering 和 Painting 花费更多的时间，所以我一直传达的观念是 React 或者说框架的意义是**为了提高代码的可维护性**，而**不是为了提高性能**的，现在所做的提升性能的操作，只是在可维护性的基础上对性能的优化。具体可以参考我公众号以前发的这两篇文章：
 
 - [别再说虚拟 DOM 快了，要被打脸的](https://mp.weixin.qq.com/s/XR3-3MNCYY2pg6yVwVQohQ)
-
 - [深入理解虚拟 DOM，它真的不快](https://mp.weixin.qq.com/s/cz5DBpqFiadL4IQofiWY3A)
 
 > 如果你对标题不满意，请把文章看完，至少也得把文章最后的结论好好看下
@@ -283,6 +282,7 @@ while (child !== null) {
   }
   child = child.sibling;
 }
+
 ```
 
 在上面这段代码我们需要注意的是，当 key 相同，React 会认为是同一个节点，所以当 key 相同，节点类型不同的时候，React 会认为你已经把这个节点重新覆盖了，所以就不会再去找剩余的节点是否可以复用。只有在 key 不同的时候，才会去找兄弟节点是否可以复用。
@@ -310,6 +310,7 @@ if (element.type === REACT_FRAGMENT_TYPE) {
   created.return = returnFiber;
   return created;
 }
+
 ```
 
 对于 Fragment 节点和一般的 Element 节点创建的方式不同，因为 Fragment 本来就是一个无意义的节点，他真正需要创建 Fiber 的是它的 children，而不是它自己，所以 `createFiberFromFragment` 传递的不是 `element `，而是 `element.props.children`。
@@ -336,6 +337,7 @@ Diff Array 算是 Diff 中最难的一部分了，比较的复杂，因为做了
 
 ```javascript
  const key = oldFiber !== null ? oldFiber.key : null;
+
 ```
 
 前面的经验可得，判断是否可以复用，常常会根据 key 是否相同来决定，所以首先获取了老节点的 key 是否存在。如果不存在老节点很可能是 TextNode 或者是 Fragment。
@@ -360,6 +362,7 @@ if (typeof newChild === 'string' || typeof newChild === 'number') {
     expirationTime,
   );
 }
+
 ```
 
 如果 key 不为 null，那么就代表老节点不是 TextNode，而新节点又是 TextNode，所以返回 null，不能复用，反之则可以复用，调用 `updateTextNode` 方法。
@@ -396,6 +399,7 @@ if (typeof newChild === 'object' && newChild !== null) {
     );
   }
 }
+
 ```
 
 首先判断是否是对象，用的是 `typeof newChild === 'object' && newChild !== null` ，注意要加 `!== null`，因为 `typeof null` 也是 object。
@@ -428,6 +432,7 @@ for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
   
   // 其他 code，比如删除复用的节点
 }
+
 ```
 
 这并不是源码的全部源码，我只是把思路给贴出来了。
@@ -449,6 +454,7 @@ if (newIdx === newChildren.length) {
   deleteRemainingChildren(returnFiber, oldFiber);
   return resultingFirstChild;
 }
+
 ```
 
 注意这里是直接 `return` 了哦，没有继续往下执行了。
@@ -469,6 +475,7 @@ if (oldFiber === null) {
   }
   return resultingFirstChild;
 }
+
 ```
 
 `oldFiber === null` 就是用来判断老的 Fiber 节点变量完了的代码，Fiber 链表是一个单向链表，所以为 null 的时候代表已经结束了。所以就直接把剩余的 newChild 通过循环创建 Fiber。
@@ -508,6 +515,7 @@ function mapRemainingChildren(
 	}
 	return existingChildren;
 }
+
 ```
 
 这个 `mapRemainingChildren` 就是将老数组存放到 Map 里面。元素有 key 就 Map 的键就存 key，没有 key 就存 index，key 一定是字符串，index 一定是 number，所以取的时候是能区分的，所以这里用的是 Map，而不是对象，如果是对象，属性是字符串，就没办法区别是 key 还是 index 了。
@@ -526,6 +534,7 @@ for (; newIdx < newChildren.length; newIdx++) {
   );
  // 省略删除 existingChildren 中的元素和添加 Placement 副作用的情况
 }
+
 ```
 
 到这里新数组遍历完毕，也就是**同一层**的 Diff 过程完毕，接下来进行总结一下。
