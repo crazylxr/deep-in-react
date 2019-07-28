@@ -1,4 +1,6 @@
+> 文章首发于[个人博客](http://www.taoweng.site/)
 
+这是我 Deep In React 系列的第二篇文章，如果还没有读过的强烈建议你先读第一篇：[**详谈 React Fiber 架构(1)**](https://github.com/crazylxr/deep-in-react/blob/master/analysis/详谈 React Fiber 架构(1).md)。
 
 ## 前言
 
@@ -36,7 +38,7 @@
 
 Diff 就是新旧节点的对比，在[上一篇](https://mp.weixin.qq.com/s/dONYc-Y96baiXBXpwh1w3A)中也说道了，这里面的 Diff 主要是构建 currentInWorkProgress 的过程，同时得到 Effect List，给下一个阶段 commit 做准备。
 
-React16 的 diff 策略采用从链表头部开始比较的算法,是层次遍历，算法是建立在一个节点的插入、删除、移动等操作都是在节点树的**同一层级**中进行的。
+React16 的 diff 策略采用从链表头部开始比较的算法，是**层次遍历**，算法是建立在一个节点的插入、删除、移动等操作都是在节点树的**同一层级**中进行的。
 
 对于 Diff， 新老节点的对比，我们以新节点为标准，然后来构建整个 currentInWorkProgress，对于新的 children 会有四种情况。
 
@@ -99,15 +101,24 @@ function reconcileChildFibers(
 }
 ```
 
-`reconcileChildFibers` 就是 Diff 部分的主体代码，这个函数超级长，是一个包装函数，详细的源码注释可以见这里。
+`reconcileChildFibers` 就是 Diff 部分的主体代码，这个函数超级长，是一个包装函数，下面所有的 diff 代码都在这里面，详细的源码注释可以见[这里](https://github.com/crazylxr/deep-in-react/blob/master/analysis/06-rencocilerChildren.md)。
 
+**参数介绍**
 
+- `returnFiber` 是即将 Diff 的这层的父节点。
+- `currentFirstChild`是当前层的第一个 Fiber 节点。
+- `newChild` 是即将更新的 vdom 节点(可能是 TextNode、可能是 ReactElement，可能是数组)，不是 Fiber 节点
+- `expirationTime` 是过期时间，这个参数是跟调度有关系的，本系列还没讲解，当然跟 Diff 也没有关系。
+
+> 再次提醒，reconcileChildFibers 是 reconcile(diff) 的一层。
+
+前置知识介绍完毕，就开始详细介绍每一种节点是如何进行 Diff 的。
 
 ## Diff TextNode
 
 首先看 TextNode，因为它是最简单的，担心直接看到难的，然后就打击你的信心。
 
-看下面两个小 demo。
+看下面两个小 demo：
 
 ```javascript
 // demo1：当前 ui 对应的节点的 jsx
@@ -147,7 +158,7 @@ return (
 1. currentFirstNode 是 TextNode
 2. currentFirstNode 不是 TextNode
 
-> currentFirstNode 是当前该层的第一个节点
+> currentFirstNode 是当前该层的第一个节点，reconcileChildFibers 传进来的参数。
 
 **为什么要分两种情况呢？**原因就是为了复用节点
 
@@ -430,7 +441,7 @@ for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
 
 ### 2. 新节点已经遍历完毕
 
-如果新节点已经遍历完毕的话，也就是没有要更新的了，这种情况一般就是从原来的数组里面删除了元素，那么直接把剩下的老节点删除了就行了。还是拿上面的图的例子举例，老 的链表里**？？？**还有很多节点，而新的链表**？？？**已经没有节点了，所以老的链表**？？？**不管是有多少节点，都不能复用了，所以没用了，直接删除。
+如果新节点已经遍历完毕的话，也就是没有要更新的了，这种情况一般就是从原来的数组里面删除了元素，那么直接把剩下的老节点删除了就行了。还是拿上面的图的例子举例，老的链表里**？？？**还有很多节点，而新的链表**？？？**已经没有节点了，所以老的链表**？？？**不管是有多少节点，都不能复用了，所以没用了，直接删除。
 
 ```javascript
 if (newIdx === newChildren.length) {
@@ -519,6 +530,27 @@ for (; newIdx < newChildren.length; newIdx++) {
 
 到这里新数组遍历完毕，也就是**同一层**的 Diff 过程完毕，接下来进行总结一下。
 
+### 效果演示
+
+以下效果动态演示来自于文章：[React Diff 源码分析](https://slane.cn/2018/08/09/react-diff-yuan-ma-fen-xi/)，我觉得这个演示非常的形象，有助于理解。
+
+这里渲染一个可输入的数组。
+![1](https://cdn.slane.cn/2018/08/1.png)
+
+当第一种情况，新数组遍历完了，老数组剩余直接删除（12345→1234 删除 5）：
+
+![img](https://cdn.slane.cn/2018-08-09-18-11-58-2.gif)
+
+新数组没完，老数组完了（1234→1234567 插入 567）：
+
+![img](https://cdn.slane.cn/2018-08-09-18-11-58-3.gif)
+
+移动的情况，即之前就存在这个元素，后续只是顺序改变（123 → 4321 插入4，移动2 1）：
+
+![img](https://cdn.slane.cn/2018-08-09-18-11-58-4.gif)
+
+最后删除没有涉及的元素。
+
 ### 总结
 
 对于数组的 diff 策略，相对比较复杂，最后来梳理一下这个策略，其实还是很简单，只是看源码的时候比较难懂。
@@ -526,12 +558,15 @@ for (; newIdx < newChildren.length; newIdx++) {
 我们可以把整个过程分为三个阶段：
 
 1. 第一遍历新数组，新老数组相同 index 进行对比，通过 `updateSlot`方法找到可以复用的节点，直到找到不可以复用的节点就退出循环。
-
 2. 第一遍历完之后，删除剩余的老节点，追加剩余的新节点的过程。如果是新节点已遍历完成，就将剩余的老节点批量删除；如果是老节点遍历完成仍有新节点剩余，则将新节点直接插入。
-
 3. 把所有老数组元素按 key 或 index 放 Map 里，然后遍历新数组，插入老数组的元素，这是移动的情况。
 
-   
+## 后记
 
+刚开始阅读源码的过程是非常的痛苦的，但是当你一遍一遍的把作者想要表达的理解了，为什么要这么写 理解了，会感到作者的设计是如此的精妙绝伦，每一个变量，每一行代码感觉都是精心设计过的，然后感受到自己与大牛的差距，激发自己的动力。
 
+更多的对于 React 原理相关，源码相关的内容，请关注我的 github：[Deep In React](https://github.com/crazylxr/deep-in-react) 或者 个人博客：[桃园](http://www.taoweng.site/)
 
+我是桃翁，一个爱思考的前端er，想了解关于更多的前端相关的，请关注我的公号：「前端桃园」
+
+![](http://imgs.taoweng.site/2019-06-26-013433.jpg)
