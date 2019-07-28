@@ -1,3 +1,5 @@
+> 
+>
 > 文章首发于[个人博客](http://taoweng.site)
 
 ## 前言
@@ -278,6 +280,5 @@ WorkInProgress Tree 构造完毕，得到的就是新的 Fiber Tree，然后喜�
 - [Fiber](https://happy-alex.github.io/js/react/fiber/)
 - [React16源码之React Fiber架构](https://github.com/HuJiaoHJ/blog/issues/7#)
 
-我是桃翁，一个爱思考的前端er，想了解关于更多的前端相关的，请关注我的公号：「前端桃园」
 
-![](http://imgs.taoweng.site/2019-06-26-013433.jpg)
+

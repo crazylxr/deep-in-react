@@ -1,6 +1,6 @@
 > 文章首发于[个人博客](http://www.taoweng.site/)
 
-这是我 Deep In React 系列的第二篇文章，如果还没有读过的强烈建议你先读第一篇：[**详谈 React Fiber 架构(1)**](https://github.com/crazylxr/deep-in-react/blob/master/analysis/详谈 React Fiber 架构(1).md)。
+这是我 Deep In React 系列的第二篇文章，如果还没有读过的强烈建议你先读第一篇：[**详谈 React Fiber 架构(1)**](https://mp.weixin.qq.com/s/dONYc-Y96baiXBXpwh1w3A)。
 
 ## 前言
 
